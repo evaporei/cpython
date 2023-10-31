@@ -3248,14 +3248,14 @@ compiler_until(struct compiler *c, stmt_ty s)
     if (!compiler_push_fblock(c, UNTIL_LOOP, loop, end, NULL)) {
         return 0;
     }
-    if (!compiler_jump_if(c, s->v.Until.test, anchor, 0)) {
+    if (!compiler_jump_if(c, s->v.Until.test, anchor, 1)) {
         return 0;
     }
 
     compiler_use_next_block(c, body);
     VISIT_SEQ(c, stmt, s->v.Until.body);
     SET_LOC(c, s);
-    if (!compiler_jump_if(c, s->v.Until.test, body, 1)) {
+    if (!compiler_jump_if(c, s->v.Until.test, body, 0)) {
         return 0;
     }
 
