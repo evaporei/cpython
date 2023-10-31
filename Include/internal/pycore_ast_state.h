@@ -144,6 +144,7 @@ struct ast_state {
     PyObject *USub_type;
     PyObject *UnaryOp_type;
     PyObject *While_type;
+    PyObject *Until_type;
     PyObject *With_type;
     PyObject *YieldFrom_type;
     PyObject *Yield_type;

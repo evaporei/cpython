@@ -273,7 +273,7 @@ compiler IR.
 
 enum fblocktype { WHILE_LOOP, FOR_LOOP, TRY_EXCEPT, FINALLY_TRY, FINALLY_END,
                   WITH, ASYNC_WITH, HANDLER_CLEANUP, POP_VALUE, EXCEPTION_HANDLER,
-                  EXCEPTION_GROUP_HANDLER, ASYNC_COMPREHENSION_GENERATOR };
+                  EXCEPTION_GROUP_HANDLER, ASYNC_COMPREHENSION_GENERATOR, UNTIL_LOOP };
 
 struct fblockinfo {
     enum fblocktype fb_type;
@@ -1875,6 +1875,10 @@ find_ann(asdl_stmt_seq *stmts)
             res = find_ann(st->v.While.body) ||
                   find_ann(st->v.While.orelse);
             break;
+        case Until_kind:
+            res = find_ann(st->v.Until.body) ||
+                  find_ann(st->v.Until.orelse);
+            break;
         case If_kind:
             res = find_ann(st->v.If.body) ||
                   find_ann(st->v.If.orelse);
@@ -2015,6 +2019,7 @@ compiler_unwind_fblock(struct compiler *c, struct fblockinfo *info,
 {
     switch (info->fb_type) {
         case WHILE_LOOP:
+        case UNTIL_LOOP:
         case EXCEPTION_HANDLER:
         case EXCEPTION_GROUP_HANDLER:
         case ASYNC_COMPREHENSION_GENERATOR:
@@ -2122,7 +2127,7 @@ compiler_unwind_fblock_stack(struct compiler *c, int preserve_tos, struct fblock
         return compiler_error(
             c, "'break', 'continue' and 'return' cannot appear in an except* block");
     }
-    if (loop != NULL && (top->fb_type == WHILE_LOOP || top->fb_type == FOR_LOOP)) {
+    if (loop != NULL && (top->fb_type == WHILE_LOOP || top->fb_type == FOR_LOOP || top->fb_type == UNTIL_LOOP)) {
         *loop = top;
         return 1;
     }
@@ -3229,6 +3234,43 @@ compiler_while(struct compiler *c, stmt_ty s)
 }
 
 static int
+compiler_until(struct compiler *c, stmt_ty s)
+{
+    basicblock *loop, *body, *end, *anchor = NULL;
+    loop = compiler_new_block(c);
+    body = compiler_new_block(c);
+    anchor = compiler_new_block(c);
+    end = compiler_new_block(c);
+    if (loop == NULL || body == NULL || anchor == NULL || end == NULL) {
+        return 0;
+    }
+    compiler_use_next_block(c, loop);
+    if (!compiler_push_fblock(c, UNTIL_LOOP, loop, end, NULL)) {
+        return 0;
+    }
+    if (!compiler_jump_if(c, s->v.Until.test, anchor, 0)) {
+        return 0;
+    }
+
+    compiler_use_next_block(c, body);
+    VISIT_SEQ(c, stmt, s->v.Until.body);
+    SET_LOC(c, s);
+    if (!compiler_jump_if(c, s->v.Until.test, body, 1)) {
+        return 0;
+    }
+
+    compiler_pop_fblock(c, UNTIL_LOOP, loop);
+
+    compiler_use_next_block(c, anchor);
+    if (s->v.Until.orelse) {
+        VISIT_SEQ(c, stmt, s->v.Until.orelse);
+    }
+    compiler_use_next_block(c, end);
+
+    return 1;
+}
+
+static int
 compiler_return(struct compiler *c, stmt_ty s)
 {
     int preserve_tos = ((s->v.Return.value != NULL) &&
@@ -4114,6 +4156,8 @@ compiler_visit_stmt(struct compiler *c, stmt_ty s)
         return compiler_for(c, s);
     case While_kind:
         return compiler_while(c, s);
+    case Until_kind:
+        return compiler_until(c, s);
     case If_kind:
         return compiler_if(c, s);
     case Match_kind:
